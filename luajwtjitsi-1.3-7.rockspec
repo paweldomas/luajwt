@@ -3,7 +3,7 @@ version = "1.3-6"
 
 source = {
 	url = "git://github.com/paweldomas/luajwt/",
-	tag = "v1.6"
+	tag = "v1.7"
 }
 
 description = {
@@ -15,7 +15,7 @@ description = {
 
 dependencies = {
 	"lua >= 5.1",
-	"luacrypto >= 0.3.2-1",
+	"luaossl >= 20161214-0",
 	"lua-cjson >= 2.1.0",
 	"lbase64 >= 20120807-3"
 }

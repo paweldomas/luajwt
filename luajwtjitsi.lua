@@ -1,38 +1,92 @@
 local cjson  = require 'cjson'
 local base64 = require 'base64'
-local crypto = require 'crypto'
+local digest = require 'openssl.digest'
+local hmac   = require 'openssl.hmac'
+local pkey   = require 'openssl.pkey'
 
-local function signRS (data, key, algo)
-	local privkey = crypto.pkey.from_pem(key, true)
-	if privkey == nil then
-		return nil, 'Not a private PEM key'
-	else
-		return crypto.sign(algo, data, privkey)
-	end
+function safe_require(mod)
+  local status, loadedMod = pcall(function() return require(mod) end)
+  if status then
+    return loadedMod
+  else
+    return status, loadedMod
+  end
 end
 
-local function verifyRS (data, signature, key, algo)
-	local pubkey = crypto.pkey.from_pem(key)
-	if pubkey == nil then
-		return nil, 'Not a public PEM key'
-	else
-		return crypto.verify(algo, data, signature, pubkey)
-	end
+local bit = safe_require'bit'
+
+local digits = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' }
+
+local tohex = nil
+
+if bit then
+  local bit_tohex = bit and bit.tohex or nil
+  --fastest in luajit
+  tohex = function(s)
+    local result = {}
+    for i = 1, #s do
+      local byte = string.byte(s, i)
+      table.insert(result, digits[bit.rshift(byte, 4) + 1])
+      table.insert(result, digits[bit.band(byte, 15)+ 1])
+    end
+    return table.concat(result)
+  end
+elseif _VERSION == 'Lua 5.3' then
+  --fastest in lua 5.3
+  --compile dynamically to be syntactically compatible with 5.1
+  loader, err = load[[
+    local digits = ...
+    return function(s)
+      local result = ""
+      for i = 1, #s do
+        local byte = string.byte(s, i)
+        result = result..(digits[(byte >> 4) + 1])..(digits[(byte&15)+ 1])
+      end
+      return result
+    end
+  ]]
+  tohex = loader(digits)
+else
+  --fastest in lua 5.1
+  tohex = function(s)
+    local result = ""
+    for i = 1, #s do
+      local byte = string.byte(s, i)
+      result = result..(digits[math.floor(byte / 16) + 1])..(digits[(byte % 16) + 1])
+    end
+    return result
+  end
+end
+
+local function signRS(data, key, algo)
+    local ok, result = pcall(function()
+      return pkey.new(key):sign(digest.new(algo):update(data))
+    end)
+    if not ok then return nil, result end
+    return result
+end
+
+local function verifyRS(data, signature, key, algo)
+    local ok, result = pcall(function()
+      return pkey.new(key):verify(signature, digest.new(algo):update(data))
+    end)
+    if not ok then return nil, result end
+    return result
 end
 
 local alg_sign = {
-	['HS256'] = function(data, key) return crypto.hmac.digest('sha256', data, key, true) end,
-	['HS384'] = function(data, key) return crypto.hmac.digest('sha384', data, key, true) end,
-	['HS512'] = function(data, key) return crypto.hmac.digest('sha512', data, key, true) end,
+	['HS256'] = function(data, key) return tohex(hmac.new(key, 'sha256'):final (data)) end,
+	['HS384'] = function(data, key) return tohex(hmac.new(key, 'sha384'):final (data)) end,
+	['HS512'] = function(data, key) return tohex(hmac.new(key, 'sha512'):final (data)) end,
 	['RS256'] = function(data, key) return signRS(data, key, 'sha256') end,
 	['RS384'] = function(data, key) return signRS(data, key, 'sha384') end,
 	['RS512'] = function(data, key) return signRS(data, key, 'sha512') end
 }
 
 local alg_verify = {
-	['HS256'] = function(data, signature, key) return signature == alg_sign['HS256'](data, key) end,
-	['HS384'] = function(data, signature, key) return signature == alg_sign['HS384'](data, key) end,
-	['HS512'] = function(data, signature, key) return signature == alg_sign['HS512'](data, key) end,
+	['HS256'] = function(data, signature, key) return signature == tohex(hmac.new (key, 'sha256'):final (data)) end,
+	['HS384'] = function(data, signature, key) return signature == tohex(hmac.new (key, 'sha384'):final (data)) end,
+	['HS512'] = function(data, signature, key) return signature == tohex(hmac.new (key, 'sha512'):final (data)) end,
 	['RS256'] = function(data, signature, key) return verifyRS(data, signature, key, 'sha256') end,
 	['RS384'] = function(data, signature, key) return verifyRS(data, signature, key, 'sha384') end,
 	['RS512'] = function(data, signature, key) return verifyRS(data, signature, key, 'sha512') end
