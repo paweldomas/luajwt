@@ -95,8 +95,8 @@ function M.encode(data, key, alg, header)
 
 	header = header or {}
 
-	header['typ']='JWT'
-	header['alg']=alg
+	header['typ'] = 'JWT'
+	header['alg'] = alg
 
 	local segments = {
 		b64_encode(cjson.encode(header)),
