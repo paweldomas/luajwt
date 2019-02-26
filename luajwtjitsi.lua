@@ -191,7 +191,7 @@ function M.decode(data, key, verify)
 
 	if verify then
 
-		if not header.typ or header.typ ~= "JWT" then
+		if not header.typ or (header.typ ~= "JOSE" and header.typ ~= "JWT") then
 			return nil, "Invalid typ"
 		end
 
